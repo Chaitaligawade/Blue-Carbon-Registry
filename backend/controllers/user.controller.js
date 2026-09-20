@@ -4,9 +4,31 @@ import { v2 as cloudinary } from 'cloudinary';
 
 export const createProject = async (req, res) => {
   try {
+    // Get authenticated user id (set by middleware)
     const userId = req.user._id;
-    const { projectName, implementingOrganization, projectDescription, startDate, endDate, locUrl, area, state, city, expectedCarbon, EIA_Report_Final, Community_Agreement, Feasibility_Study, Site_Before_Mangrove, Planting_Day_Volunteer, Site_After_Mangrove } = req.body;
+
+    const {
+      projectName,
+      implementingOrganization,
+      projectDescription,
+      startDate,
+      endDate,
+      locUrl,
+      area,
+      state,
+      city,
+      expectedCarbon,
+      EIA_Report_Final,
+      Community_Agreement,
+      Feasibility_Study,
+      Site_Before_Mangrove,
+      Planting_Day_Volunteer,
+      Site_After_Mangrove,
+    } = req.body;
+
+    // ✅ Validation
     let missingFields = [];
+
     if (!projectName) missingFields.push("projectName");
     if (!implementingOrganization) missingFields.push("implementingOrganization");
     if (!projectDescription) missingFields.push("projectDescription");
@@ -23,31 +45,93 @@ export const createProject = async (req, res) => {
     if (!Site_Before_Mangrove) missingFields.push("Site_Before_Mangrove");
     if (!Planting_Day_Volunteer) missingFields.push("Planting_Day_Volunteer");
     if (!Site_After_Mangrove) missingFields.push("Site_After_Mangrove");
-    if (missingFields.length > 0) return res.status(400).json({ error: `The following fields are required: ${missingFields.join(', ')}` });
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({ error: `The following fields are required: ${missingFields.join(', ')}` });
+    }
+
+
+
+    // ✅ Ensure user exists
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
-    let uploadResponse = await cloudinary.uploader.upload(EIA_Report_Final, { resource_type: "raw", folder: "pdfs", public_id: `EIA_Report_Final_${Date.now()}.pdf` });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    //store  pdf in cludniary
+    let uploadResponse = await cloudinary.uploader.upload(EIA_Report_Final, {
+      resource_type: "raw", // important for PDFs
+      folder: "pdfs",       // optional
+      public_id: `EIA_Report_Final_${Date.now()}.pdf` // add .pdf extension
+    });
     const EIA_URL = uploadResponse.secure_url;
-    uploadResponse = await cloudinary.uploader.upload(Community_Agreement, { resource_type: "raw", folder: "pdfs", public_id: `Community_Agreement_${Date.now()}.pdf` });
+
+    uploadResponse = await cloudinary.uploader.upload(Community_Agreement, {
+      resource_type: "raw",
+      folder: "pdfs",
+      public_id: `Community_Agreement_${Date.now()}.pdf`
+    });
     const Community_URL = uploadResponse.secure_url;
-    uploadResponse = await cloudinary.uploader.upload(Feasibility_Study, { resource_type: "raw", folder: "pdfs", public_id: `Feasibility_Study_${Date.now()}.pdf` });
+
+    uploadResponse = await cloudinary.uploader.upload(Feasibility_Study, {
+      resource_type: "raw",
+      folder: "pdfs",
+      public_id: `Feasibility_Study_${Date.now()}.pdf`  // add .pdf extension
+    });
     const Feasibility_URL = uploadResponse.secure_url;
+
+
+
+    //store  img in cludniary
     uploadResponse = await cloudinary.uploader.upload(Site_Before_Mangrove);
     const Before_URL = uploadResponse.secure_url;
+
     uploadResponse = await cloudinary.uploader.upload(Planting_Day_Volunteer);
     const Planting_URL = uploadResponse.secure_url;
+
     uploadResponse = await cloudinary.uploader.upload(Site_After_Mangrove);
     const After_URL = uploadResponse.secure_url;
+
+
+
+    // ✅ Create new project
     const newProject = new Project({
-      projectName, implementingOrganization, projectDescription, startDate, endDate, locUrl, state, city, area, expectedCarbon,
-      supportingDocuments: { EIA_Report_Final: EIA_URL, Community_Agreement: Community_URL, Feasibility_Study: Feasibility_URL },
-      visualEvidence: { Site_Before_Mangrove: Before_URL, Planting_Day_Volunteer: Planting_URL, Site_After_Mangrove: After_URL },
+      projectName,
+      implementingOrganization,
+      projectDescription,
+      startDate,
+      endDate,
+      locUrl,
+      state,
+      city,
+      area,
+      expectedCarbon,
+      supportingDocuments: {
+        EIA_Report_Final: EIA_URL,
+        Community_Agreement: Community_URL,
+        Feasibility_Study: Feasibility_URL,
+      },
+      visualEvidence: {
+        Site_Before_Mangrove: Before_URL,
+        Planting_Day_Volunteer: Planting_URL,
+        Site_After_Mangrove: After_URL,
+      },
       user: user._id,
     });
+
+
+
+    // Save project
     await newProject.save();
+
+    // ✅ Push project into user's projects list
     user.projects.push(newProject._id);
     await user.save();
-    res.status(201).json({ message: "Project created successfully", project: newProject });
+
+    res.status(201).json({
+      message: "Project created successfully",
+      project: newProject,
+    });
   } catch (error) {
     console.error("Error in createProject controller:", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -58,11 +142,17 @@ export const deleteProject = async (req, res) => {
   try {
     const { projectId } = req.params;
     const userId = req.user._id;
+
     const project = await Project.findById(projectId);
     const user = await User.findById(userId);
+
     if (!project) return res.status(404).json({ error: "Project not found" });
     if (!user) return res.status(404).json({ error: "User not found" });
-    if (userId.toString() !== project.user.toString()) return res.status(403).json({ error: "You're not the owner of this project" });
+
+    if (userId.toString() !== project.user.toString())
+      return res.status(403).json({ error: "You're not the owner of this project" });
+
+    // Delete PDFs
     for (const key in project.supportingDocuments) {
       const url = project.supportingDocuments[key];
       if (typeof url === "string") {
@@ -72,6 +162,8 @@ export const deleteProject = async (req, res) => {
         await cloudinary.uploader.destroy(pdfId, { resource_type: "raw" });
       }
     }
+
+    // Delete Images
     for (const key in project.visualEvidence) {
       const value = project.visualEvidence[key];
       if (typeof value === "string") {
@@ -83,10 +175,16 @@ export const deleteProject = async (req, res) => {
         console.log(`Skipping ${key}, not a string:`, value);
       }
     }
+
+
     await Project.findByIdAndDelete(projectId);
+
+    // Update user projects
     user.projects = user.projects.filter(p => p.toString() !== projectId);
     await user.save();
+
     res.status(200).json({ message: "Project deleted successfully" });
+
   } catch (error) {
     console.log("Error in deleteProject controller:", error.message);
     res.status(500).json({ error: "Internal Server Error" });
@@ -96,7 +194,10 @@ export const deleteProject = async (req, res) => {
 export const allProject = async (req, res) => {
   try {
     const projects = await Project.find();
-    if (!projects.length) return res.status(404).json({ error: "No projects found." });
+
+    if (!projects.length) {
+      return res.status(404).json({ error: "No projects found." });
+    }
     res.status(200).json({ projects });
   } catch (error) {
     console.log("Error in allProject controller: ", error.message);
@@ -109,8 +210,11 @@ export const myProject = async (req, res) => {
     const userId = req.user._id;
     const user = await User.findById(userId);
     if (!user) res.status(404).json({ error: "User not found " });
-    const projectIds = user.projects;
-    const projects = await Project.find({ '_id': { $in: projectIds } });
+
+    const projectIds = user.projects;  // Get the list of project IDs from the user
+
+    const projects = await Project.find({ '_id': { $in: projectIds } });  // Fetch the projects using the IDs
+
     res.status(200).json({ projects });
   } catch (error) {
     console.log("Error in allProject controller: ", error.message);
@@ -118,45 +222,77 @@ export const myProject = async (req, res) => {
   }
 }
 
+
 export const ApproveProject = async (req, res) => {
   const { projectId } = req.params;
-  const userId = req.user._id;
+  const userId = req.user._id; 
   const { creditsIssued } = req.body;
+
   try {
     const project = await Project.findById(projectId);
     const user = await User.findById(userId);
-    if (!project) return res.status(404).json({ error: "Project not found" });
-    if (!user) return res.status(404).json({ error: "User not found" });
-    if (creditsIssued === undefined || creditsIssued < 0) return res.status(400).json({ error: "Invalid creditsIssued value" });
-    if (project.status === "Approved") return res.status(400).json({ error: "Project is already approved" });
+
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (creditsIssued === undefined || creditsIssued < 0) {
+      return res.status(400).json({ error: "Invalid creditsIssued value" });
+    }
+
+    if (project.status === "Approved") {
+      return res.status(400).json({ error: "Project is already approved" });
+    }
     user.creditsIssued += creditsIssued;
     await user.save();
+
     project.status = "Approved";
     project.creditsIssued = creditsIssued;
     await project.save();
+
     res.status(200).json({ message: "Project approved successfully", project });
+
   } catch (error) {
     console.error(`Error in ApproveProject controller at ${req.method} ${req.originalUrl}: ${error.message}`);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
+
 export const RejectProject = async (req, res) => {
   const { projectId } = req.params;
   const { rejectionReason } = req.body;
   const userId = req.user._id;
+
   try {
     const project = await Project.findById(projectId);
     const user = await User.findById(userId);
-    if (!project) return res.status(404).json({ error: "Project not found" });
-    if (!user) return res.status(404).json({ error: "User not found" });
-    if (!rejectionReason) return res.status(400).json({ error: "Rejection reason must be given" });
+
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+
+    // Check if rejectionReason is provided
+    if (!rejectionReason ) {
+      return res.status(400).json({ error: "Rejection reason must be given" });
+    }
+
     project.status = "Rejected";
-    project.rejectionReason = rejectionReason;
+    project.rejectionReason = rejectionReason;  // Set rejection reason
     await project.save();
+
     res.status(200).json({ message: "Project rejected successfully", project });
   } catch (error) {
     console.error(`Error in RejectProject controller at ${req.method} ${req.originalUrl}: ${error.message}`);
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
