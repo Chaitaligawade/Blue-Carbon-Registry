@@ -1,5 +1,5 @@
 import React from 'react';
-import hand from '../assets/hand.png'
+import hand from '../assets/Hand.png'
 import bookMark from '../assets/bookMark.png'
 import leaf from '../assets/leaf.png'
 import ongoing from '../assets/ongoing.jpeg'
